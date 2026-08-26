@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Verify the local environment without installing packages.
+
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON="${PHIPSTREAM_PYTHON:-python3}"
+status=0
+
+ok()   { printf '  ok    %s\n' "$*" ; }
+warn() { printf '  warn  %s\n' "$*" ; }
+bad()  { printf '  FAIL  %s\n' "$*" ; status=1 ; }
+
+echo "phipstream environment check"
+
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    ok "docker $(docker --version | awk '{print $3}' | tr -d ,)"
+elif command -v apptainer >/dev/null 2>&1; then
+    ok "apptainer $(apptainer --version | awk '{print $NF}')"
+elif command -v singularity >/dev/null 2>&1; then
+    ok "singularity $(singularity --version | awk '{print $NF}')"
+else
+    bad "no container engine. Install Docker or Apptainer"
+fi
+
+if command -v "$PYTHON" >/dev/null 2>&1; then
+    ok "$PYTHON $("$PYTHON" -c 'import platform; print(platform.python_version())')"
+    if "$PYTHON" -c 'import pandas' 2>/dev/null; then
+        ok "pandas $("$PYTHON" -c 'import pandas; print(pandas.__version__)')"
+    else
+        bad "pandas missing. $PYTHON -m pip install -r $ROOT/requirements.txt"
+    fi
+else
+    bad "$PYTHON not on PATH. Set PHIPSTREAM_PYTHON to an interpreter that is"
+fi
+
+# These tools are needed only for the workflow manager path.
+if command -v nextflow >/dev/null 2>&1; then
+    ok "nextflow $(nextflow -version 2>&1 | awk '/^ *version/ {print $2; exit}')"
+else
+    warn "nextflow not on PATH. Needed only for the phip-flow deployment"
+fi
+if command -v java >/dev/null 2>&1; then
+    ok "java $(java -version 2>&1 | head -1 | awk -F'"' '{print $2}')"
+else
+    warn "java not on PATH. Needed only for the phip-flow deployment"
+fi
+
+echo
+if [[ $status -eq 0 ]]; then
+    echo "Environment check passed."
+else
+    echo "Environment check failed."
+fi
+exit $status

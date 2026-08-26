@@ -1,0 +1,33 @@
+# Nextflow run products
+work/
+work_*/
+.nextflow*
+results/
+logs/
+
+# Python local artifacts
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+
+# Container image cache files
+.apptainer_cache/
+*.sif
+
+# Local input data and alignment outputs
+data/
+*.fastq
+*.fastq.gz
+*.fq
+*.fq.gz
+*.bam
+*.sam
+
+# Editor and operating system files
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+*:Zone.Identifier

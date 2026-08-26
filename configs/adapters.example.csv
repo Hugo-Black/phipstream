@@ -1,0 +1,3 @@
+name,read,end,sequence,anchored
+leader_r1,R1,5,ACGTACGTACGTACGTACGTACGTAC,false
+leader_r2,R2,5,TGCATGCATGCATGCATGCATGCATG,false

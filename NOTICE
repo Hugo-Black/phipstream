@@ -1,0 +1,21 @@
+Repository license map
+======================
+
+This repository contains code under more than one license.
+
+1. phipstream code outside phip-flow/
+
+   Unless a file states otherwise, files outside phip-flow/ are licensed under
+   the MIT License. See LICENSE for its text.
+
+2. Bundled phip-flow fork
+
+   Files under phip-flow/ are distributed under the GNU General Public License,
+   version 3.0, as stated by the phip-flow source headers and the license file
+   in that directory. See phip-flow/LICENSE for the GPL-3.0 text.
+
+3. Third-party tools
+
+   phipstream invokes external tools through containers. Those tools are not
+   relicensed by this repository. See README.md for citation and component
+   information.

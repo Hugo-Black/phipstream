@@ -1,0 +1,91 @@
+#!/usr/bin/env Rscript
+
+library(beer)
+library(PhIPData)
+library(dplyr)
+library(BiocParallel)
+
+# Serial execution prevents worker forks from exhausting memory on large tables.
+register(SerialParam())
+
+edgeR_threshold = as.double(commandArgs(trailingOnly=TRUE)[1])
+
+make_phipdata <- function(){
+
+    # Build the object layout described by the PhIPData vignette.
+    # Load peptide metadata.
+    peptide_info <- read.csv("dataset_peptide_annotation_table.csv")
+
+    # Load sample metadata.
+    sample_meta <- read.csv("dataset_sample_annotation_table.csv")
+
+    # Rename the control-status field to the group column expected downstream.
+    sample_meta <- sample_meta %>% rename("group" = "control_status")
+
+    # Convert phipstream status labels to BEER group labels.
+    fix_group <- function(val){
+        if(val == 'empirical'){return('trt')}
+        if(val == 'beads_only'){return('beads')}
+        if(val == 'library'){return('ctrl')}
+        return(val)
+    }
+    sample_meta$group <- sapply(
+        sample_meta$group,
+        fix_group
+    )
+
+    # Load peptide count matrix.
+    counts_dat <- read.csv("dataset_counts.csv", row.names = 1)
+
+    # Allocate placeholder assay tables for log fold change and probability.
+    logfc_dat <- prob_dat <- data.frame(
+        matrix(
+        ncol = ncol(counts_dat),
+        nrow = nrow(counts_dat)
+        )
+    )
+
+    # Assign consistent row and column names.
+    rownames(counts_dat) <- rownames(logfc_dat) <-
+        rownames(prob_dat) <- rownames(peptide_info) <-
+        peptide_info$peptide_id
+
+    colnames(counts_dat) <- colnames(logfc_dat) <-
+        colnames(prob_dat) <- rownames(sample_meta) <-
+        sample_meta$sample_id
+
+    # Store experimental summary metadata.
+    exp_meta <- list(reads_per_sample = colSums(counts_dat))
+
+    # Create the PhIPData object.
+    phip_obj <- PhIPData(counts_dat, logfc_dat, prob_dat, 
+                        peptide_info, sample_meta, 
+                        exp_meta)
+
+    return(phip_obj)
+}
+
+# Assemble the PhIPData object.
+print("Building PhIPData object")
+phip_obj <- make_phipdata()
+
+# Run edgeR using the BEER package workflow.
+print("Running edgeR")
+edgeR_out <- runEdgeR(
+    phip_obj, 
+    assay.names = c(logfc = "edgeR_logfc",
+                    prob = "edgeR_logpval"))
+
+print("Adding edgeR hits")
+assay(edgeR_out, "edgeR_hits") <- apply(
+  assay(edgeR_out, "edgeR_logpval"), 2, 
+  function(sample){
+    pval <- 10^(-sample)
+    p.adjust(pval, method = "BH") < edgeR_threshold
+  })
+
+saveRDS(edgeR_out, "PhIPData.rds")
+
+write.csv(assays(edgeR_out)$edgeR_logpval, file="edgeR_logpval.csv")
+write.csv(assays(edgeR_out)$edgeR_logfc, file="edgeR_logfc.csv")
+write.csv(assays(edgeR_out)$edgeR_hits, file="edgeR_hits.csv")

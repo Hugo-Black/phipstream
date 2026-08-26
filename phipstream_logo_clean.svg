@@ -1,0 +1,51 @@
+<svg width="1200" height="420" viewBox="0 0 1200 420" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="flowGrad" x1="80" y1="210" x2="500" y2="210" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2DD4BF"/>
+      <stop offset="0.5" stop-color="#38BDF8"/>
+      <stop offset="1" stop-color="#818CF8"/>
+    </linearGradient>
+    <linearGradient id="textGrad" x1="545" y1="120" x2="1080" y2="285" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#334155"/>
+    </linearGradient>
+    <filter id="softShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#0F172A" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="420" rx="42" fill="#F8FAFC"/>
+
+  <!-- Icon background -->
+  <circle cx="285" cy="210" r="142" fill="white" filter="url(#softShadow)"/>
+  <circle cx="285" cy="210" r="116" stroke="#E2E8F0" stroke-width="6"/>
+
+  <!-- Flow path -->
+  <path d="M142 214 C205 114, 287 118, 330 176 C370 229, 424 250, 487 173"
+        stroke="url(#flowGrad)" stroke-width="18" stroke-linecap="round"/>
+
+  <path d="M142 256 C208 322, 276 291, 320 239 C364 186, 423 169, 500 224"
+        stroke="url(#flowGrad)" stroke-width="12" stroke-linecap="round" opacity="0.55"/>
+
+  <!-- Pipeline nodes -->
+  <circle cx="142" cy="214" r="18" fill="#2DD4BF" stroke="white" stroke-width="7"/>
+  <circle cx="250" cy="142" r="15" fill="#38BDF8" stroke="white" stroke-width="7"/>
+  <circle cx="330" cy="176" r="18" fill="#60A5FA" stroke="white" stroke-width="7"/>
+  <circle cx="408" cy="238" r="15" fill="#818CF8" stroke="white" stroke-width="7"/>
+  <circle cx="487" cy="173" r="18" fill="#6366F1" stroke="white" stroke-width="7"/>
+
+  <!-- Sequencing reads / data bars -->
+  <rect x="193" y="246" width="40" height="10" rx="5" fill="#CBD5E1"/>
+  <rect x="244" y="265" width="58" height="10" rx="5" fill="#94A3B8"/>
+  <rect x="312" y="284" width="72" height="10" rx="5" fill="#CBD5E1"/>
+
+  <!-- Phage / antibody hint -->
+  <path d="M280 193 L280 237 M251 214 H309 M263 197 L297 231 M297 197 L263 231"
+        stroke="#0F172A" stroke-width="7" stroke-linecap="round" opacity="0.78"/>
+  <circle cx="280" cy="214" r="10" fill="#0F172A" opacity="0.78"/>
+
+  <!-- Wordmark only -->
+  <text x="560" y="238" font-family="Inter, Avenir, Helvetica, Arial, sans-serif" font-size="92" font-weight="800" letter-spacing="-3" fill="url(#textGrad)">
+    PhipStream
+  </text>
+</svg>

@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# phipstream command dispatcher.
+#
+#   qc          create an nf-core/seqinspector sample sheet
+#   trim        run cutadapt over the read files
+#   align       map R1 reads to peptide oligos and collect counts
+#   score       call enriched peptides with edgeR and BEER
+#   prioritise  summarise replicate support and build shortlists
+#   stages      run every stage from one config file, or submit it as a job
+#   images      show or fetch the pinned container images
+#
+#   nextflow    launch the bundled workflow for a dataset config
+#   submit      wrap that workflow in a PBS submission script
+#
+# Stage commands pass the rest of their arguments through unchanged. For example,
+# `phipstream align --help` displays the aligner stage options.
+#
+# Environment:
+#   PHIPSTREAM_PYTHON   interpreter for stage scripts, default python3
+#   PHIPSTREAM_ENGINE   docker or apptainer, otherwise auto-detected
+#   PHIPSTREAM_TRACE    print container argv before execution
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON="${PHIPSTREAM_PYTHON:-python3}"
+
+usage() {
+    awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"
+    exit "${1:-0}"
+}
+
+stage() {
+    exec "$PYTHON" "$ROOT/bin/$1" "${@:2}"
+}
+
+[[ $# -lt 1 ]] && usage 1
+SUBCMD="$1"
+shift || true
+
+case "$SUBCMD" in
+    -h|--help|help) usage 0 ;;
+    qc)         stage make_qc_samplesheet.py "$@" ;;
+    trim)       stage trim_reads.py "$@" ;;
+    align)      stage align_reads.py "$@" ;;
+    score)      stage call_enrichment.py "$@" ;;
+    prioritise) stage prioritise_peptides.py "$@" ;;
+    stages)     stage run_stages.py "$@" ;;
+    images)     stage containers.py "$@" ;;
+    nextflow|submit) ;;
+    *) echo "phipstream: unknown command '$SUBCMD'" >&2 ; usage 1 ;;
+esac
+
+# The remaining branch handles the bundled phip-flow workflow path.
+[[ $# -lt 1 ]] && { echo "phipstream $SUBCMD: missing config path" >&2 ; exit 1 ; }
+CONFIG="$1"
+shift
+[[ -f "$CONFIG" ]] || { echo "phipstream: config not found: $CONFIG" >&2 ; exit 1 ; }
+
+COMPUTEROME_PROJECT=""
+RESUME=""
+PASSTHROUGH=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --computerome_project) COMPUTEROME_PROJECT="$2" ; shift 2 ;;
+        --resume)              RESUME="-resume" ; shift ;;
+        *)                     PASSTHROUGH+=("$1") ; shift ;;
+    esac
+done
+
+MAIN="$ROOT/phip-flow/main.nf"
+[[ -f "$MAIN" ]] || { echo "phipstream: pipeline source missing at $MAIN" >&2 ; exit 1 ; }
+
+ARGS=("$MAIN" -c "$ROOT/phip-flow/nextflow.config" -c "$CONFIG"
+      -with-report results/pipeline_report.html -with-trace results/trace.tsv)
+[[ -n "$RESUME" ]] && ARGS+=("$RESUME")
+[[ ${#PASSTHROUGH[@]} -gt 0 ]] && ARGS+=("${PASSTHROUGH[@]}")
+
+caller_set_profile=0
+for arg in "${PASSTHROUGH[@]:-}"; do
+    [[ "$arg" == "-profile" ]] && caller_set_profile=1
+done
+
+case "$SUBCMD" in
+    nextflow)
+        cd "$ROOT"
+        mkdir -p results
+        if [[ $caller_set_profile -eq 1 ]]; then
+            exec nextflow run "${ARGS[@]}"
+        fi
+        exec nextflow run "${ARGS[@]}" -profile apptainer
+        ;;
+    submit)
+        [[ -n "$COMPUTEROME_PROJECT" ]] || {
+            echo "phipstream submit: --computerome_project is required" >&2
+            exit 1
+        }
+        mkdir -p logs
+        JOB="phipstream_$(basename "$CONFIG" .config)_$(date +%Y%m%d_%H%M%S)"
+        SCRIPT="$ROOT/logs/${JOB}.qsub"
+        cat > "$SCRIPT" <<EOF
+#!/usr/bin/env bash
+#PBS -N ${JOB}
+#PBS -A ${COMPUTEROME_PROJECT}
+#PBS -W group_list=${COMPUTEROME_PROJECT}
+#PBS -l nodes=1:ppn=8,mem=32gb,walltime=24:00:00
+#PBS -o ${ROOT}/logs/${JOB}.out
+#PBS -e ${ROOT}/logs/${JOB}.err
+
+set -euo pipefail
+module load tools apptainer nextflow
+
+cd "${ROOT}"
+mkdir -p results
+nextflow run ${ARGS[*]@Q} -profile computerome --computerome_project ${COMPUTEROME_PROJECT}
+EOF
+        chmod +x "$SCRIPT"
+        echo "wrote $SCRIPT"
+        if command -v qsub >/dev/null 2>&1; then
+            echo "submitted: $(qsub "$SCRIPT")"
+        else
+            echo "qsub not on PATH, submit it from a node that has one"
+        fi
+        ;;
+esac

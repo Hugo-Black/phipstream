@@ -1,0 +1,86 @@
+#!/usr/bin/env Rscript
+
+# Run BEER on the PhIPData object created by run_edgeR.Rscript.
+#
+# Usage: run_BEER.Rscript [min_lib_size] [posterior_threshold] [beadsRR] [seed]
+
+library(beer)
+library(PhIPData)
+library(dplyr)
+library(BiocParallel)
+
+# Serial execution avoids memory spikes from forked workers on large libraries.
+register(SerialParam())
+
+argv <- commandArgs(trailingOnly = TRUE)
+arg_or <- function(i, default) if (length(argv) >= i && nzchar(argv[i])) argv[i] else default
+
+MIN_LIB_SIZE <- as.integer(arg_or(1, "500"))
+PROB_CUTOFF  <- as.double(arg_or(2, "0.5"))
+BEADS_RR     <- toupper(arg_or(3, "FALSE")) %in% c("TRUE", "T", "1", "YES")
+SEED         <- as.numeric(arg_or(4, format(Sys.Date(), "%Y%m%d")))
+
+edgeR_out <- readRDS("PhIPData.rds")
+
+# BEER can fail on samples with too few library-mapped reads. Exclude those
+# samples before fitting, then add them back as empty columns when writing output
+# so callers still see the original sample layout.
+original_samples <- colnames(edgeR_out)
+lib_sizes <- colSums(assay(edgeR_out, "counts"))
+low_lib <- lib_sizes < MIN_LIB_SIZE
+if (any(low_lib)) {
+    message(sprintf("[run_BEER] dropping %d sample(s) below %d reads: %s",
+                    sum(low_lib), MIN_LIB_SIZE,
+                    paste(original_samples[low_lib], collapse = ", ")))
+    edgeR_out <- edgeR_out[, original_samples[!low_lib]]
+} else {
+    message(sprintf("[run_BEER] no samples below %d reads", MIN_LIB_SIZE))
+}
+
+assay_locations <- c(
+  phi = "beer_fc_marg",
+  phi_Z = "beer_fc_cond",
+  Z = "beer_prob",
+  c = "sampleInfo",
+  pi = "sampleInfo"
+)
+
+message(sprintf("[run_BEER] brew: beadsRR=%s seed=%d", BEADS_RR, SEED))
+jags_params <- list(n.chains = 1, n.adapt = 1000, n.iter = 10000, thin = 1,
+                    na.rm = TRUE, burn.in = 0, post.thin = 1, seed = SEED)
+beer_out <- brew(edgeR_out, assay.names = assay_locations,
+                 beadsRR = BEADS_RR, jags.params = jags_params)
+
+# Missing posterior values after BEER ran mark super-enriched peptides. Treat
+# those records as hits rather than dropping high-confidence calls.
+was_run <- matrix(rep(beer_out$group != "beads", each = nrow(beer_out)),
+                  nrow = nrow(beer_out))
+are_se <- was_run & is.na(assay(beer_out, "beer_prob"))
+assay(beer_out, "beer_hits") <- assay(beer_out, "beer_prob") > PROB_CUTOFF | are_se
+
+expand_to_full_samples <- function(mat, full_samples, fill = NA) {
+    if (ncol(mat) == length(full_samples)) {
+        return(mat[, full_samples, drop = FALSE])
+    }
+    out <- matrix(fill, nrow = nrow(mat), ncol = length(full_samples),
+                  dimnames = list(rownames(mat), full_samples))
+    out[, colnames(mat)] <- mat
+    return(out)
+}
+
+write.csv(expand_to_full_samples(assays(beer_out)$beer_prob, original_samples, NA),
+          file = "beer_prob.csv")
+write.csv(expand_to_full_samples(assay(beer_out, "beer_hits"), original_samples, FALSE),
+          file = "beer_hits.csv")
+
+# brew() may also return marginal and conditional fold-change assays.
+for (fc_name in c("beer_fc_cond", "beer_fc_marg")) {
+    if (fc_name %in% assayNames(beer_out)) {
+        write.csv(expand_to_full_samples(assay(beer_out, fc_name), original_samples, NA),
+                  file = paste0(fc_name, ".csv"))
+    } else {
+        message(sprintf("[run_BEER] %s absent from brew() output", fc_name))
+    }
+}
+
+saveRDS(beer_out, "PhIPData.rds")
