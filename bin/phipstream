@@ -63,11 +63,22 @@ RESUME=""
 # Modules the submitted job loads. Bare names fail on a site that publishes no
 # default version, so a caller can name exact ones.
 MODULES="tools apptainer nextflow"
+# Job script, scheduler output and the Nextflow report all land here. The
+# default keeps a standalone run self-contained, and the stage runner points it
+# at the dataset instead so one run leaves one trail.
+LOG_DIR="$ROOT/logs"
+WALLTIME="24:00:00"
+PPN="8"
+MEM="32gb"
 PASSTHROUGH=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --computerome_project) COMPUTEROME_PROJECT="$2" ; shift 2 ;;
         --modules)             MODULES="$2" ; shift 2 ;;
+        --log-dir)             LOG_DIR="$2" ; shift 2 ;;
+        --walltime)            WALLTIME="$2" ; shift 2 ;;
+        --ppn)                 PPN="$2" ; shift 2 ;;
+        --mem)                 MEM="$2" ; shift 2 ;;
         --resume)              RESUME="-resume" ; shift ;;
         *)                     PASSTHROUGH+=("$1") ; shift ;;
     esac
@@ -77,7 +88,8 @@ MAIN="$ROOT/phip-flow/main.nf"
 [[ -f "$MAIN" ]] || { echo "phipstream: pipeline source missing at $MAIN" >&2 ; exit 1 ; }
 
 ARGS=("$MAIN" -c "$ROOT/phip-flow/nextflow.config" -c "$CONFIG"
-      -with-report results/pipeline_report.html -with-trace results/trace.tsv)
+      -with-report "$LOG_DIR/pipeline_report.html"
+      -with-trace "$LOG_DIR/trace.tsv")
 [[ -n "$RESUME" ]] && ARGS+=("$RESUME")
 [[ ${#PASSTHROUGH[@]} -gt 0 ]] && ARGS+=("${PASSTHROUGH[@]}")
 
@@ -89,7 +101,7 @@ done
 case "$SUBCMD" in
     nextflow)
         cd "$ROOT"
-        mkdir -p results
+        mkdir -p "$LOG_DIR"
         if [[ $caller_set_profile -eq 1 ]]; then
             exec nextflow run "${ARGS[@]}"
         fi
@@ -100,23 +112,23 @@ case "$SUBCMD" in
             echo "phipstream submit: --computerome_project is required" >&2
             exit 1
         }
-        mkdir -p logs
+        mkdir -p "$LOG_DIR"
         JOB="phipstream_$(basename "$CONFIG" .config)_$(date +%Y%m%d_%H%M%S)"
-        SCRIPT="$ROOT/logs/${JOB}.qsub"
+        SCRIPT="$LOG_DIR/${JOB}.qsub"
         cat > "$SCRIPT" <<EOF
 #!/usr/bin/env bash
 #PBS -N ${JOB}
 #PBS -A ${COMPUTEROME_PROJECT}
 #PBS -W group_list=${COMPUTEROME_PROJECT}
-#PBS -l nodes=1:ppn=8,mem=32gb,walltime=24:00:00
-#PBS -o ${ROOT}/logs/${JOB}.out
-#PBS -e ${ROOT}/logs/${JOB}.err
+#PBS -l nodes=1:ppn=${PPN},mem=${MEM},walltime=${WALLTIME}
+#PBS -o ${LOG_DIR}/${JOB}.out
+#PBS -e ${LOG_DIR}/${JOB}.err
 
 set -euo pipefail
 module load ${MODULES}
 
 cd "${ROOT}"
-mkdir -p results
+mkdir -p "${LOG_DIR}"
 nextflow run ${ARGS[*]@Q} -profile computerome --computerome_project ${COMPUTEROME_PROJECT}
 EOF
         chmod +x "$SCRIPT"

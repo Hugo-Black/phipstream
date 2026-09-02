@@ -467,11 +467,17 @@ Keys in `[workflow]` keep their case, because they become workflow parameter
 names. `run_BEER` is not `run_beer`, and a misspelled parameter is accepted in
 silence and then ignored.
 
-The `modules` key is passed to the submitted job for this route as well, so it
-must name nextflow when `--workflow` is used with `--submit`. Name exact
-versions where the site publishes no default, since `module load apptainer` on
+The `modules`, `walltime`, `ppn` and `mem` keys are passed to the submitted job
+for this route as well, so both routes are described once. `modules` must name
+nextflow when `--workflow` is used with `--submit`, and exact versions are
+needed where the site publishes no default, since `module load apptainer` on
 such a site fails with `Unable to locate a modulefile for apptainer/<nodefault>`
 and the job dies on its first line.
+
+The job script, the scheduler output and the Nextflow report and trace are all
+written under `<out_dir>/logs`, so one run leaves one trail. A standalone
+`phipstream submit` with a dataset config writes them under `logs/` in the
+repository instead, which `--log-dir` overrides.
 
 ## Workflow manager execution
 
@@ -633,6 +639,10 @@ agrees with what is written here.
 | `--submit` | off | write a PBS job script and submit it instead of running |
 | `--computerome_project` | none | PBS account and group list, required with --submit |
 | `--dry-run` | off | print the stage commands without running them |
+
+For `--workflow --submit`, the `modules`, `walltime`, `ppn` and `mem` keys are
+forwarded to the job script, and its logs are written under `<out_dir>/logs`
+alongside the stage route's.
 
 ## Repository layout
 
