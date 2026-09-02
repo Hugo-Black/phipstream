@@ -10,7 +10,8 @@
 #   images      show or fetch the pinned container images
 #
 #   nextflow    launch the bundled workflow for a dataset config
-#   submit      wrap that workflow in a PBS submission script
+#   submit      wrap that workflow in a PBS submission script, taking the
+#               modules to load from --modules
 #
 # Stage commands pass the rest of their arguments through unchanged. For example,
 # `phipstream align --help` displays the aligner stage options.
@@ -59,10 +60,14 @@ shift
 
 COMPUTEROME_PROJECT=""
 RESUME=""
+# Modules the submitted job loads. Bare names fail on a site that publishes no
+# default version, so a caller can name exact ones.
+MODULES="tools apptainer nextflow"
 PASSTHROUGH=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --computerome_project) COMPUTEROME_PROJECT="$2" ; shift 2 ;;
+        --modules)             MODULES="$2" ; shift 2 ;;
         --resume)              RESUME="-resume" ; shift ;;
         *)                     PASSTHROUGH+=("$1") ; shift ;;
     esac
@@ -108,7 +113,7 @@ case "$SUBCMD" in
 #PBS -e ${ROOT}/logs/${JOB}.err
 
 set -euo pipefail
-module load tools apptainer nextflow
+module load ${MODULES}
 
 cd "${ROOT}"
 mkdir -p results

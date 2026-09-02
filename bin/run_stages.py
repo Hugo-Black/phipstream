@@ -284,6 +284,8 @@ def main():
                 "submit" if args.submit else "nextflow", str(rendered)]
         if args.computerome_project:
             argv += ["--computerome_project", args.computerome_project]
+        if "modules" in cfg:
+            argv += ["--modules", cfg["modules"]]
         return subprocess.run(argv).returncode
 
     if args.submit:

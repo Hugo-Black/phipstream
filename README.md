@@ -467,6 +467,12 @@ Keys in `[workflow]` keep their case, because they become workflow parameter
 names. `run_BEER` is not `run_beer`, and a misspelled parameter is accepted in
 silence and then ignored.
 
+The `modules` key is passed to the submitted job for this route as well, so it
+must name nextflow when `--workflow` is used with `--submit`. Name exact
+versions where the site publishes no default, since `module load apptainer` on
+such a site fails with `Unable to locate a modulefile for apptainer/<nodefault>`
+and the job dies on its first line.
+
 ## Workflow manager execution
 
 The bundled workflow under `phip-flow/` supports alignment, count collection,
