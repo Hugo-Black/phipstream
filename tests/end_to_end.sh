@@ -126,6 +126,37 @@ assert ruled["n_calls"] <= plain["n_calls"], (
 print(f"[test] replicate rule: {plain['n_calls']} calls down to {ruled['n_calls']}")
 CHECK
 
+# The binned generalized Poisson scorers, when statsmodels is available. The
+# zero inflated variant can only lower a tail probability, so it can never call
+# fewer peptides than the plain fit at the same threshold.
+if "$PYTHON" -c "import statsmodels" 2>/dev/null
+then
+    for METHOD in larman_gp xu_zigp
+    do
+        "$ROOT/bin/phipstream" score \
+            --counts        "$COUNTS" \
+            --sample-table  "$WORK/trimmed_table.csv" \
+            --peptide-table "$WORK/fixture/peptide_table.csv" \
+            --out-dir       "$WORK/score_$METHOD" \
+            --method        "$METHOD" --gp-bins 5 > /dev/null
+    done
+    "$PYTHON" - "$WORK/score_larman_gp" "$WORK/score_xu_zigp" <<'CHECK'
+import json
+import sys
+plain = json.load(open(sys.argv[1] + "/enrichment_summary.json"))
+zeroed = json.load(open(sys.argv[2] + "/enrichment_summary.json"))
+for s in (plain, zeroed):
+    assert s["threshold"] == 2.3, f"expected the 2.3 cutoff, got {s['threshold']}"
+    assert s["gp_bins"] == 5, s["gp_bins"]
+assert zeroed["n_calls"] >= plain["n_calls"], (
+    f"zero inflation lowered calls, {plain['n_calls']} to {zeroed['n_calls']}")
+print(f"[test] larman_gp {plain['n_calls']} calls, "
+      f"xu_zigp {zeroed['n_calls']} at -log10 p > 2.3")
+CHECK
+else
+    echo "[test] statsmodels absent, binned generalized Poisson scorers skipped"
+fi
+
 # A combined config drives both routes. Check the stage chain gains the FastQC
 # stage and that rendering keeps parameter names case sensitive, since a
 # lowercased run_BEER is accepted in silence and then ignored.

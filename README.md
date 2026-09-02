@@ -190,10 +190,12 @@ background, and BEER calls enrichment using the resulting PhIPData object.
 | `arcsinh` | z | 3.5 | `arcsinh_z.csv.gz`, `arcsinh_hits.csv.gz` |
 | `aitchison` | z | 3.5 | `aitchison_z.csv.gz`, `aitchison_hits.csv.gz` |
 | `true_gp` | -log10 p | 2.3 | `true_gp_mlxp.csv.gz`, `true_gp_hits.csv.gz` |
+| `larman_gp` | -log10 p | 2.3 | `larman_gp_mlxp.csv.gz`, `larman_gp_hits.csv.gz` |
+| `xu_zigp` | -log10 p | 2.3 | `xu_zigp_mlxp.csv.gz`, `xu_zigp_hits.csv.gz` |
 
-`beer` and `edger` come from the bundled phip-flow R steps. The other three are
-computed in this repository, and `true_gp` is the only one that needs
-statsmodels.
+`beer` and `edger` come from the bundled phip-flow R steps. The rest are
+computed in this repository, and the three generalized Poisson scorers are the
+ones that need statsmodels.
 
 #### The Python scorers
 
@@ -232,9 +234,29 @@ and the counts the fit runs on, so the dispersion describes how much a peptide
 varies between replicates of that set. When the reference varies less than a
 Poisson would, the fit returns a negative dispersion, the null is tighter than
 the samples being scored against it, and the call count inflates. The stage
-prints a warning when that happens. It occurs on pHEN6 with `--gp-null input`,
-where the input reference was diluted before amplification and so is far less
-variable than the immunoprecipitated samples.
+prints a warning when that happens. It occurs on a diluted input reference,
+which is far less variable than the immunoprecipitated samples.
+
+`larman_gp` is the published construction. Peptides are grouped into bins by
+their abundance in the reference set, a generalized Poisson is fitted within
+each bin to the counts of the sample being scored, and both fitted parameters
+are then regressed against the bin abundance. The null therefore varies with
+abundance rather than being one number, and the fit runs on the counts under
+test rather than on the reference set's own counts. `--gp-bins` sets the number
+of bins, defaulting to one per 50 peptides so that moment estimates have enough
+observations, capped at 300.
+
+`xu_zigp` adds the Xu 2015 zero inflation on top. The share of zeros a bin
+carries beyond what its fitted generalized Poisson predicts is treated as a
+separate zero generating process, and the tail probability is scaled by the
+complement of it. That matters for libraries where most peptides are never
+observed in most samples.
+
+Both share the 2.3 cutoff on -log10 p that Xu 2015 applies, and both accept
+`--gp-null`. On a 1,194 peptide library the difference from `true_gp` is
+substantial: against a diluted input reference `true_gp` called more peptides in
+the antibody controls than in serum, which is a broken null, where `larman_gp`
+on the same reference did not.
 
 `--replicate-rule` is separate from the choice of scorer. It gives every
 replicate in a group the lowest score in that group, so a single threshold check
@@ -588,7 +610,8 @@ agrees with what is written here.
 | `--method` | `beer` | scoring method. One of `beer`, `edger`, `arcsinh`, `aitchison`, `true_gp` |
 | `--threshold` | per method | calling threshold for the Python scorers, on that method's own scale |
 | `--arcsinh-cofactor` | `5.0` | divisor applied to CPM before the arcsinh. A convention, not a published value |
-| `--gp-null` | `beads` | set `true_gp` builds its null from, `beads` or `input` |
+| `--gp-null` | `beads` | set the generalized Poisson scorers build their null from, `beads` or `input` |
+| `--gp-bins` | one per 50 peptides | abundance bins for `larman_gp` and `xu_zigp`, capped at 300 |
 | `--replicate-rule` | off | give every replicate in a group the lowest score in that group |
 | `--replicate-group-column` | `participant_ID` | what counts as one group for the replicate rule |
 | `--min-lib-size` | `500` | drop a sample below this many library-mapped reads |
