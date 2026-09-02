@@ -87,6 +87,45 @@ for name in ("groups", "replicates", "adjacent"):
 print(f"[test] shortlist {s['n_shortlist']}, criteria {s['criteria']}")
 PY
 
+# The scorers computed in Python, on the same counts the R path uses. true_gp is
+# left out because it is the one that needs statsmodels.
+for METHOD in arcsinh aitchison
+do
+    "$ROOT/bin/phipstream" score \
+        --counts        "$COUNTS" \
+        --sample-table  "$WORK/trimmed_table.csv" \
+        --peptide-table "$WORK/fixture/peptide_table.csv" \
+        --out-dir       "$WORK/score_$METHOD" \
+        --method        "$METHOD" > /dev/null
+    "$PYTHON" - "$WORK/score_$METHOD/enrichment_summary.json" "$METHOD" <<'CHECK'
+import json
+import sys
+s = json.load(open(sys.argv[1]))
+assert s["method"] == sys.argv[2], s["method"]
+assert s["threshold"] == 3.5, f"expected the 3.5 z cutoff, got {s['threshold']}"
+assert s["n_peptides"] == 200, s["n_peptides"]
+print(f"[test] {sys.argv[2]}: {s['n_calls']} calls at z > {s['threshold']}")
+CHECK
+done
+
+# The replicate rule can only lower a score, so it can never add calls.
+"$ROOT/bin/phipstream" score \
+    --counts        "$COUNTS" \
+    --sample-table  "$WORK/trimmed_table.csv" \
+    --peptide-table "$WORK/fixture/peptide_table.csv" \
+    --out-dir       "$WORK/score_arcsinh_rep" \
+    --method        arcsinh --replicate-rule > /dev/null
+"$PYTHON" - "$WORK/score_arcsinh" "$WORK/score_arcsinh_rep" <<'CHECK'
+import json
+import sys
+plain = json.load(open(sys.argv[1] + "/enrichment_summary.json"))
+ruled = json.load(open(sys.argv[2] + "/enrichment_summary.json"))
+assert ruled["replicate_rule"] is True, "replicate rule not recorded"
+assert ruled["n_calls"] <= plain["n_calls"], (
+    f"replicate rule raised calls, {plain['n_calls']} to {ruled['n_calls']}")
+print(f"[test] replicate rule: {plain['n_calls']} calls down to {ruled['n_calls']}")
+CHECK
+
 # A combined config drives both routes. Check the stage chain gains the FastQC
 # stage and that rendering keeps parameter names case sensitive, since a
 # lowercased run_BEER is accepted in silence and then ignored.

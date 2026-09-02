@@ -181,13 +181,65 @@ The scoring stage prepares the wide count, sample annotation, and peptide
 annotation tables consumed by the R scripts. edgeR fits the beads-only
 background, and BEER calls enrichment using the resulting PhIPData object.
 
-`--method` selects how far that chain runs. Both methods come from the bundled
-phip-flow R steps.
+`--method` selects the scorer. Two run in R, three run in Python.
 
-* `beer` runs edgeR to fit the prior and then BEER over it, and writes
-  `beer_posterior.csv.gz` and `beer_hits.csv.gz`. This is the default.
-* `edger` stops after edgeR and writes `edger_logpval.csv.gz` and
-  `edger_hits.csv.gz`.
+| Method | Scale | Default cutoff | Writes |
+|---|---|---|---|
+| `beer` | posterior probability | 0.5 | `beer_posterior.csv.gz`, `beer_hits.csv.gz` |
+| `edger` | BH adjusted p value | 0.05 | `edger_logpval.csv.gz`, `edger_hits.csv.gz` |
+| `arcsinh` | z | 3.5 | `arcsinh_z.csv.gz`, `arcsinh_hits.csv.gz` |
+| `aitchison` | z | 3.5 | `aitchison_z.csv.gz`, `aitchison_hits.csv.gz` |
+| `true_gp` | -log10 p | 2.3 | `true_gp_mlxp.csv.gz`, `true_gp_hits.csv.gz` |
+
+`beer` and `edger` come from the bundled phip-flow R steps. The other three are
+computed in this repository, and `true_gp` is the only one that needs
+statsmodels.
+
+#### The Python scorers
+
+`arcsinh` takes CPM, divides by a cofactor, applies the inverse hyperbolic sine,
+and z scores the result against the beads-only samples. The transform is
+variance stabilising at low counts, where a log diverges at zero, and preserves
+the ordering of the high tail. The z > 3.5 cutoff is the one Olin 2026 applies.
+The cofactor is not: five is a convention carried over from mass cytometry, and
+`--arcsinh-cofactor` exposes it because changing it changes every score.
+
+`aitchison` replaces CPM with the centred log ratio, dividing each proportion by
+the geometric mean across peptides before the same beads-only z score. Read
+counts after any proportional normalisation are compositional, so a rise in one
+peptide forces a fall in the others. The log ratio lifts the data off the
+simplex. A pseudocount of 0.5 is added because the transform is undefined at
+zero and PhIP-seq matrices are mostly zero. No published cutoff exists for this
+scorer, so 3.5 is carried over from the z scale it shares with `arcsinh` rather
+than cited.
+
+`true_gp` fits a generalized Poisson in which log abundance in a reference set
+linearly predicts the mean, with a library size offset, and scores each count as
+-log10 of the upper tail probability. `--gp-null` chooses that reference set:
+`beads` uses the mock immunoprecipitations, keeping it consistent with the other
+scorers, and `input` uses the library reference so that expected counts follow
+input abundance.
+
+This is not the Larman 2011 construction. That method fits a separate
+generalized Poisson at each input abundance level and regresses both parameters
+against that level, so its dispersion varies with abundance. Here the fit is
+global and the dispersion is a single number. Xu 2015 layers zero inflation on
+top of the Larman model, which is also not implemented. What is shared is the
+distribution family and the use of abundance to set the expected count.
+
+One consequence is worth watching. The reference set supplies both the abundance
+and the counts the fit runs on, so the dispersion describes how much a peptide
+varies between replicates of that set. When the reference varies less than a
+Poisson would, the fit returns a negative dispersion, the null is tighter than
+the samples being scored against it, and the call count inflates. The stage
+prints a warning when that happens. It occurs on pHEN6 with `--gp-null input`,
+where the input reference was diluted before amplification and so is far less
+variable than the immunoprecipitated samples.
+
+`--replicate-rule` is separate from the choice of scorer. It gives every
+replicate in a group the lowest score in that group, so a single threshold check
+means every replicate cleared it. That is the reproducibility criterion Xu 2015
+applies, and it composes with any of the three Python scorers.
 
 The difference in cost is large. On a run of 96 samples against 1,194 peptides,
 edgeR finished in 13 seconds where BEER took 187 minutes, because the BEER
@@ -533,7 +585,12 @@ agrees with what is written here.
 | `--sample-table` | required | sample table carrying control_status or the columns it is derived from |
 | `--peptide-table` | required | peptide table with a peptide_id column |
 | `--out-dir` | required | destination for the score and hit matrices |
-| `--method` | `beer` | scoring method. beer runs edgeR to fit the prior and then BEER over it. edger stops after edgeR, which is far quicker and.... One of `beer`, `edger` |
+| `--method` | `beer` | scoring method. One of `beer`, `edger`, `arcsinh`, `aitchison`, `true_gp` |
+| `--threshold` | per method | calling threshold for the Python scorers, on that method's own scale |
+| `--arcsinh-cofactor` | `5.0` | divisor applied to CPM before the arcsinh. A convention, not a published value |
+| `--gp-null` | `beads` | set `true_gp` builds its null from, `beads` or `input` |
+| `--replicate-rule` | off | give every replicate in a group the lowest score in that group |
+| `--replicate-group-column` | `participant_ID` | what counts as one group for the replicate rule |
 | `--min-lib-size` | `500` | drop a sample below this many library-mapped reads |
 | `--posterior-threshold` | `0.5` | posterior probability above which a peptide is called |
 | `--beads-rr` | off | run each beads-only sample against the others |
@@ -654,6 +711,33 @@ pandas 2.0 or later:
 McKinney, W. (2010). Data structures for statistical computing in Python. In
 *Proceedings of the 9th Python in Science Conference* (pp. 56-61).
 https://doi.org/10.25080/Majora-92bf1922-00a
+
+statsmodels, required only by the true_gp scorer:
+Seabold, S., & Perktold, J. (2010). statsmodels: Econometric and statistical
+modeling with Python. In *Proceedings of the 9th Python in Science Conference*
+(pp. 92-96). https://doi.org/10.25080/Majora-92bf1922-011
+
+The generalized Poisson null fitted by the true_gp scorer:
+Larman, H. B., Zhao, Z., Laserson, U., Li, M. Z., Ciccia, A., Gakidis, M. A.
+M., Church, G. M., Okada, S., Ndung'u, T., Walker, B. D., & Elledge, S. J.
+(2011). Autoantigen discovery with a synthetic human peptidome. *Nature
+Biotechnology, 29*(6), 535-541. https://doi.org/10.1038/nbt.1856
+
+The reproducibility criterion behind --replicate-rule:
+Xu, G. J., Kula, T., Xu, Q., Li, M. Z., Vernon, S. D., Ndung'u, T.,
+Ruxrungtham, K., Sanchez, J., Brander, C., Chung, R. T., O'Connor, K. C.,
+Walker, B., Larman, H. B., & Elledge, S. J. (2015). Comprehensive serological
+profiling of human populations using a synthetic human virome. *Science,
+348*(6239), aaa0698. https://doi.org/10.1126/science.aaa0698
+
+The arcsinh transform and z > 3.5 cutoff used by the arcsinh scorer:
+Olin, A., Pou, C., Jaquaniello, A., Quintana-Murci, L., & Patin, E. (2026).
+*Nature Immunology, 27*, 600-612. https://doi.org/10.1038/s41590-026-02432-7
+
+The compositional argument behind the aitchison scorer:
+Aitchison, J. (1982). The statistical analysis of compositional data. *Journal
+of the Royal Statistical Society: Series B, 44*(2), 139-160.
+https://doi.org/10.1111/j.2517-6161.1982.tb01195.x
 
 Bowtie 1, optional in the Nextflow execution mode:
 Langmead, B., Trapnell, C., Pop, M., & Salzberg, S. L. (2009). Ultrafast and

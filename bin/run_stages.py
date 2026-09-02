@@ -37,7 +37,10 @@ SCRIPTS = {"fastqc": "run_fastqc.py", "trim": "trim_reads.py",
            "prioritise": "prioritise_peptides.py"}
 # Score matrix and hit matrix each scoring method leaves behind.
 SCORE_FILES = {"beer": ("beer_posterior.csv.gz", "beer_hits.csv.gz"),
-               "edger": ("edger_logpval.csv.gz", "edger_hits.csv.gz")}
+               "edger": ("edger_logpval.csv.gz", "edger_hits.csv.gz"),
+               "arcsinh": ("arcsinh_z.csv.gz", "arcsinh_hits.csv.gz"),
+               "aitchison": ("aitchison_z.csv.gz", "aitchison_hits.csv.gz"),
+               "true_gp": ("true_gp_mlxp.csv.gz", "true_gp_hits.csv.gz")}
 
 
 def load_config(path):
@@ -128,8 +131,13 @@ def build_commands(cfg, config_path, out_dir):
         "--posterior-threshold", cfg.get("posterior_threshold", "0.5"),
         "--edger-fdr", cfg.get("edger_fdr", "0.05"),
         "--seed", cfg.get("seed", "20260101"),
-    ] + (["--beads-rr"] if cfg.get("beads_rr", "").lower() in ("true", "yes", "1")
-         else []), posterior))
+    ] + (["--beads-rr"] if enabled(cfg, "beads_rr") else [])
+      + (["--replicate-rule"] if enabled(cfg, "replicate_rule") else [])
+      + [flag for key, name in (("threshold", "--threshold"),
+                                ("arcsinh_cofactor", "--arcsinh-cofactor"),
+                                ("gp_null", "--gp-null"),
+                                ("replicate_group_column", "--replicate-group-column"))
+         if key in cfg for flag in (name, cfg[key])], posterior))
 
     prioritise = [
         "--posterior", str(posterior),
