@@ -78,6 +78,7 @@ process fit_predict_zscore {
     """
     fit-predict-zscore.py \
         -ds ${phip_data} \
+        --min-peptides-per-bin ${params.zscore_min_peptides_per_bin} \
         -o fit_predict_zscore.phip
     """
 }

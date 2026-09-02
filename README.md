@@ -493,13 +493,25 @@ several can run in one pass, and each adds its own layer to the output dataset.
 | Switch | Layer written | Notes |
 |---|---|---|
 | `run_cpm_enr_workflow` | `enrichment` | fold enrichment over the library control samples |
-| `run_zscore_fit_predict` | `zscore` | binned z score against the beads-only samples, threshold `zscore_threshold` |
+| `run_zscore_fit_predict` | `zscore` | binned z score against the beads-only samples, threshold `zscore_threshold`, bin floor `zscore_min_peptides_per_bin` |
 | `run_gamma_poisson` | `gamma_poisson_mlxp` | gamma-Poisson over size factors, tuned by the `gamma_poisson_*` settings |
 | `run_edgeR` | `edgeR_*` | edgeR, and the prior BEER consumes, cutoff `edgeR_threshold` |
 | `run_BEER` | `beer_*` | BEER posterior, tuned by the `beer_*` settings |
 
 BEER consumes the prior edgeR fits, so leave `run_edgeR` on whenever `run_BEER`
 is on. All five are listed with their settings in `configs/_template.config`.
+
+`run_zscore_fit_predict` measures each peptide against others of similar
+abundance rather than against the library as a whole. Peptides are ordered by
+their summed abundance across the beads-only samples and merged into bins until
+each holds at least `zscore_min_peptides_per_bin`, so the number of bins is
+about the library size divided by that floor. The default of 300 comes from
+phippery and suits a library of order 100,000 peptides, where it yields
+hundreds of bins. A library of one or two thousand peptides reaches the floor
+in three or four, at which point a peptide is being compared against others of
+quite different abundance and the binning is doing little. Lower the floor on a
+small library, keeping in mind that the model trims to the middle 90 percent of
+a bin before estimating, so a floor of 100 fits on about 90 peptides.
 
 Each switch writes its layer into a single dataset object rather than into a
 file of its own. Three further switches control how that object is written.
