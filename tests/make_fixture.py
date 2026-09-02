@@ -12,7 +12,10 @@ import gzip
 import random
 from pathlib import Path
 
-ADAPTER = "TTGTTATTACTCGCGGCCCACTGCAG"
+# Invented leader, 26 nt. The fixture writes it into both the reads and the
+# adapter CSV, so any sequence works. Do not substitute a real one: this file
+# is public and a library leader describes how the library was built.
+ADAPTER = "ACGTACGTTGCACCGGTTAACCGGAT"
 OLIGO_LEN = 168
 TILE_STEP = 28
 READ_LEN = 151
