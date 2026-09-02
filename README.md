@@ -187,76 +187,42 @@ background, and BEER calls enrichment using the resulting PhIPData object.
 |---|---|---|---|
 | `beer` | posterior probability | 0.5 | `beer_posterior.csv.gz`, `beer_hits.csv.gz` |
 | `edger` | BH adjusted p value | 0.05 | `edger_logpval.csv.gz`, `edger_hits.csv.gz` |
-| `arcsinh` | z | 3.5 | `arcsinh_z.csv.gz`, `arcsinh_hits.csv.gz` |
-| `aitchison` | z | 3.5 | `aitchison_z.csv.gz`, `aitchison_hits.csv.gz` |
-| `true_gp` | -log10 p | 2.3 | `true_gp_mlxp.csv.gz`, `true_gp_hits.csv.gz` |
 | `larman_gp` | -log10 p | 2.3 | `larman_gp_mlxp.csv.gz`, `larman_gp_hits.csv.gz` |
 | `xu_zigp` | -log10 p | 2.3 | `xu_zigp_mlxp.csv.gz`, `xu_zigp_hits.csv.gz` |
 
-`beer` and `edger` come from the bundled phip-flow R steps. The rest are
-computed in this repository, and the three generalized Poisson scorers are the
-ones that need statsmodels.
+`beer` and `edger` come from the bundled phip-flow R steps. The other two are
+computed in this repository and need statsmodels.
 
-#### The Python scorers
+Every scorer here is either the published software itself or the published
+construction. A method that approximates a paper without reproducing it is worse
+than an absent one, because the citation implies a comparability that does not
+hold, so nothing of that kind is offered.
 
-`arcsinh` takes CPM, divides by a cofactor, applies the inverse hyperbolic sine,
-and z scores the result against the beads-only samples. The transform is
-variance stabilising at low counts, where a log diverges at zero, and preserves
-the ordering of the high tail. The z > 3.5 cutoff is the one Olin 2026 applies.
-The cofactor is not: five is a convention carried over from mass cytometry, and
-`--arcsinh-cofactor` exposes it because changing it changes every score.
+#### The generalized Poisson scorers
 
-`aitchison` replaces CPM with the centred log ratio, dividing each proportion by
-the geometric mean across peptides before the same beads-only z score. Read
-counts after any proportional normalisation are compositional, so a rise in one
-peptide forces a fall in the others. The log ratio lifts the data off the
-simplex. A pseudocount of 0.5 is added because the transform is undefined at
-zero and PhIP-seq matrices are mostly zero. No published cutoff exists for this
-scorer, so 3.5 is carried over from the z scale it shares with `arcsinh` rather
-than cited.
+`larman_gp` is the Larman 2011 construction. Peptides are grouped into bins by
+their abundance in a reference set, a generalized Poisson is fitted within each
+bin to the counts of the sample being scored, and both fitted parameters are
+then regressed against the bin abundance. Two properties follow, and both matter:
+the null varies with abundance rather than being one number for the whole
+matrix, and the fit runs on the counts under test rather than on the reference
+set's own counts. `--gp-bins` sets the bin count, defaulting to one per 50
+peptides so the moment estimates have enough observations behind them, capped at
+300.
 
-`true_gp` fits a generalized Poisson in which log abundance in a reference set
-linearly predicts the mean, with a library size offset, and scores each count as
--log10 of the upper tail probability. `--gp-null` chooses that reference set:
-`beads` uses the mock immunoprecipitations, keeping it consistent with the other
-scorers, and `input` uses the library reference so that expected counts follow
-input abundance.
+`xu_zigp` adds the Xu 2015 zero inflation. The share of zeros a bin carries
+beyond what its fitted generalized Poisson predicts is treated as a separate
+zero generating process, and the tail probability is scaled by the complement of
+it. That matters for libraries where most peptides are never observed in most
+samples. Xu also required a peptide to clear the threshold in both replicates,
+which is `--replicate-rule` rather than part of the scorer.
 
-This is not the Larman 2011 construction. That method fits a separate
-generalized Poisson at each input abundance level and regresses both parameters
-against that level, so its dispersion varies with abundance. Here the fit is
-global and the dispersion is a single number. Xu 2015 layers zero inflation on
-top of the Larman model, which is also not implemented. What is shared is the
-distribution family and the use of abundance to set the expected count.
-
-One consequence is worth watching. The reference set supplies both the abundance
-and the counts the fit runs on, so the dispersion describes how much a peptide
-varies between replicates of that set. When the reference varies less than a
-Poisson would, the fit returns a negative dispersion, the null is tighter than
-the samples being scored against it, and the call count inflates. The stage
-prints a warning when that happens. It occurs on a diluted input reference,
-which is far less variable than the immunoprecipitated samples.
-
-`larman_gp` is the published construction. Peptides are grouped into bins by
-their abundance in the reference set, a generalized Poisson is fitted within
-each bin to the counts of the sample being scored, and both fitted parameters
-are then regressed against the bin abundance. The null therefore varies with
-abundance rather than being one number, and the fit runs on the counts under
-test rather than on the reference set's own counts. `--gp-bins` sets the number
-of bins, defaulting to one per 50 peptides so that moment estimates have enough
-observations, capped at 300.
-
-`xu_zigp` adds the Xu 2015 zero inflation on top. The share of zeros a bin
-carries beyond what its fitted generalized Poisson predicts is treated as a
-separate zero generating process, and the tail probability is scaled by the
-complement of it. That matters for libraries where most peptides are never
-observed in most samples.
-
-Both share the 2.3 cutoff on -log10 p that Xu 2015 applies, and both accept
-`--gp-null`. On a 1,194 peptide library the difference from `true_gp` is
-substantial: against a diluted input reference `true_gp` called more peptides in
-the antibody controls than in serum, which is a broken null, where `larman_gp`
-on the same reference did not.
+`--gp-null` chooses the reference set. `beads` uses the mock
+immunoprecipitations, `input` uses the library reference so expected counts
+follow input abundance as the published method describes. On a diluted input
+reference the second is the more faithful choice but the less well behaved one,
+because such a reference varies far less than the immunoprecipitated samples
+being scored against it.
 
 `--replicate-rule` is separate from the choice of scorer. It gives every
 replicate in a group the lowest score in that group, so a single threshold check
@@ -607,9 +573,8 @@ agrees with what is written here.
 | `--sample-table` | required | sample table carrying control_status or the columns it is derived from |
 | `--peptide-table` | required | peptide table with a peptide_id column |
 | `--out-dir` | required | destination for the score and hit matrices |
-| `--method` | `beer` | scoring method. One of `beer`, `edger`, `arcsinh`, `aitchison`, `true_gp` |
-| `--threshold` | per method | calling threshold for the Python scorers, on that method's own scale |
-| `--arcsinh-cofactor` | `5.0` | divisor applied to CPM before the arcsinh. A convention, not a published value |
+| `--method` | `beer` | scoring method. One of `beer`, `edger`, `larman_gp`, `xu_zigp` |
+| `--threshold` | `2.3` | calling threshold for the Python scorers, on the -log10 p scale |
 | `--gp-null` | `beads` | set the generalized Poisson scorers build their null from, `beads` or `input` |
 | `--gp-bins` | one per 50 peptides | abundance bins for `larman_gp` and `xu_zigp`, capped at 300 |
 | `--replicate-rule` | off | give every replicate in a group the lowest score in that group |
@@ -735,32 +700,24 @@ McKinney, W. (2010). Data structures for statistical computing in Python. In
 *Proceedings of the 9th Python in Science Conference* (pp. 56-61).
 https://doi.org/10.25080/Majora-92bf1922-00a
 
-statsmodels, required only by the true_gp scorer:
+statsmodels, required by the generalized Poisson scorers:
 Seabold, S., & Perktold, J. (2010). statsmodels: Econometric and statistical
 modeling with Python. In *Proceedings of the 9th Python in Science Conference*
 (pp. 92-96). https://doi.org/10.25080/Majora-92bf1922-011
 
-The generalized Poisson null fitted by the true_gp scorer:
+The construction implemented by the larman_gp scorer:
 Larman, H. B., Zhao, Z., Laserson, U., Li, M. Z., Ciccia, A., Gakidis, M. A.
 M., Church, G. M., Okada, S., Ndung'u, T., Walker, B. D., & Elledge, S. J.
 (2011). Autoantigen discovery with a synthetic human peptidome. *Nature
 Biotechnology, 29*(6), 535-541. https://doi.org/10.1038/nbt.1856
 
-The reproducibility criterion behind --replicate-rule:
+The zero inflated variant in xu_zigp, and the criterion behind --replicate-rule:
 Xu, G. J., Kula, T., Xu, Q., Li, M. Z., Vernon, S. D., Ndung'u, T.,
 Ruxrungtham, K., Sanchez, J., Brander, C., Chung, R. T., O'Connor, K. C.,
 Walker, B., Larman, H. B., & Elledge, S. J. (2015). Comprehensive serological
 profiling of human populations using a synthetic human virome. *Science,
 348*(6239), aaa0698. https://doi.org/10.1126/science.aaa0698
 
-The arcsinh transform and z > 3.5 cutoff used by the arcsinh scorer:
-Olin, A., Pou, C., Jaquaniello, A., Quintana-Murci, L., & Patin, E. (2026).
-*Nature Immunology, 27*, 600-612. https://doi.org/10.1038/s41590-026-02432-7
-
-The compositional argument behind the aitchison scorer:
-Aitchison, J. (1982). The statistical analysis of compositional data. *Journal
-of the Royal Statistical Society: Series B, 44*(2), 139-160.
-https://doi.org/10.1111/j.2517-6161.1982.tb01195.x
 
 Bowtie 1, optional in the Nextflow execution mode:
 Langmead, B., Trapnell, C., Pop, M., & Salzberg, S. L. (2009). Ultrafast and

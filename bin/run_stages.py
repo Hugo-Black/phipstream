@@ -38,9 +38,8 @@ SCRIPTS = {"fastqc": "run_fastqc.py", "trim": "trim_reads.py",
 # Score matrix and hit matrix each scoring method leaves behind.
 SCORE_FILES = {"beer": ("beer_posterior.csv.gz", "beer_hits.csv.gz"),
                "edger": ("edger_logpval.csv.gz", "edger_hits.csv.gz"),
-               "arcsinh": ("arcsinh_z.csv.gz", "arcsinh_hits.csv.gz"),
-               "aitchison": ("aitchison_z.csv.gz", "aitchison_hits.csv.gz"),
-               "true_gp": ("true_gp_mlxp.csv.gz", "true_gp_hits.csv.gz")}
+               "larman_gp": ("larman_gp_mlxp.csv.gz", "larman_gp_hits.csv.gz"),
+               "xu_zigp": ("xu_zigp_mlxp.csv.gz", "xu_zigp_hits.csv.gz")}
 
 
 def load_config(path):
@@ -134,7 +133,7 @@ def build_commands(cfg, config_path, out_dir):
     ] + (["--beads-rr"] if enabled(cfg, "beads_rr") else [])
       + (["--replicate-rule"] if enabled(cfg, "replicate_rule") else [])
       + [flag for key, name in (("threshold", "--threshold"),
-                                ("arcsinh_cofactor", "--arcsinh-cofactor"),
+                                ("gp_bins", "--gp-bins"),
                                 ("gp_null", "--gp-null"),
                                 ("replicate_group_column", "--replicate-group-column"))
          if key in cfg for flag in (name, cfg[key])], posterior))

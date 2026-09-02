@@ -31,23 +31,14 @@ R_DIR = Path(__file__).resolve().parent.parent / "phip-flow" / "bin"
 # Score matrix and hit matrix each method writes, and what prioritise reads.
 SCORE_FILES = {"beer": ("beer_posterior.csv.gz", "beer_hits.csv.gz"),
                "edger": ("edger_logpval.csv.gz", "edger_hits.csv.gz"),
-               "arcsinh": ("arcsinh_z.csv.gz", "arcsinh_hits.csv.gz"),
-               "aitchison": ("aitchison_z.csv.gz", "aitchison_hits.csv.gz"),
-               "true_gp": ("true_gp_mlxp.csv.gz", "true_gp_hits.csv.gz"),
                "larman_gp": ("larman_gp_mlxp.csv.gz", "larman_gp_hits.csv.gz"),
                "xu_zigp": ("xu_zigp_mlxp.csv.gz", "xu_zigp_hits.csv.gz")}
-# Methods computed here rather than in R.
-PY_METHODS = ("arcsinh", "aitchison", "true_gp", "larman_gp", "xu_zigp")
-# Scorers that build their null from abundance in a reference set.
-GP_METHODS = ("true_gp", "larman_gp", "xu_zigp")
-# Calling thresholds on each method's own scale.
-#   arcsinh    z > 3.5, the cutoff Olin 2026 applies to its z scores
-#   aitchison  the same cutoff, on the same z scale. No published value exists
-#              for this scorer, so it is a convention rather than a citation
-#   true_gp    -log10 p > 2.3, the cutoff Xu 2015 applies to generalized
-#              Poisson p values, shared by the two binned variants
-DEFAULT_THRESHOLDS = {"arcsinh": 3.5, "aitchison": 3.5, "true_gp": 2.3,
-                      "larman_gp": 2.3, "xu_zigp": 2.3}
+# Methods computed here rather than in R. Both build their null from abundance
+# in a reference set.
+PY_METHODS = ("larman_gp", "xu_zigp")
+# Calling threshold on each method's own scale. Both are -log10 p, and 2.3 is
+# the cutoff Xu 2015 applies to generalized Poisson p values.
+DEFAULT_THRESHOLDS = {"larman_gp": 2.3, "xu_zigp": 2.3}
 TRUE_WORDS = ("true", "1", "yes", "t")
 
 
@@ -167,23 +158,16 @@ def reference_columns(samples, counts, kind):
 
 def run_python_scorer(args, counts, samples, out_dir):
     """Score in Python and write the matrices. Returns what was written."""
-    kind = args.gp_null if args.method in GP_METHODS else "beads"
+    kind = args.gp_null
     reference = reference_columns(samples, counts, kind)
     if len(reference) < 2:
         sys.exit(f"{args.method} needs at least 2 {kind} reference samples, "
                  f"found {len(reference)}")
     print(f"[score] {args.method} against {len(reference)} {kind} samples")
 
-    if args.method == "arcsinh":
-        scores = scorers.score_arcsinh(counts, reference, args.arcsinh_cofactor)
-    elif args.method == "aitchison":
-        scores = scorers.score_aitchison(counts, reference)
-    elif args.method == "true_gp":
-        scores = scorers.score_true_gp(counts, reference)
-    else:
-        scores = scorers.score_binned_gp(
-            counts, reference, zero_inflated=args.method == "xu_zigp",
-            n_bins=args.gp_bins)
+    scores = scorers.score_binned_gp(
+        counts, reference, zero_inflated=args.method == "xu_zigp",
+        n_bins=args.gp_bins)
 
     if args.replicate_rule:
         column = args.replicate_group_column
@@ -223,19 +207,14 @@ def main():
     ap.add_argument("--method", choices=tuple(SCORE_FILES), default="beer",
                     help="scoring method. beer runs edgeR to fit the prior and "
                          "then BEER over it. edger stops after edgeR, which is "
-                         "far quicker and suits a deployment check. arcsinh, "
-                         "aitchison and true_gp are computed here rather than "
-                         "in R (default beer)")
+                         "far quicker and suits a deployment check. larman_gp "
+                         "and xu_zigp are computed here rather than in R "
+                         "(default beer)")
     ap.add_argument("--threshold", type=float, default=None,
-                    help="calling threshold for arcsinh, aitchison or true_gp, "
-                         "on that method's own scale. Defaults to "
-                         f"{DEFAULT_THRESHOLDS}")
-    ap.add_argument("--arcsinh-cofactor", type=float, default=scorers.COFACTOR,
-                    help="divisor applied to CPM before the arcsinh transform. "
-                         "The default is a convention carried over from mass "
-                         f"cytometry, not a published value (default {scorers.COFACTOR})")
+                    help="calling threshold for larman_gp or xu_zigp, on the "
+                         "-log10 p scale (default 2.3)")
     ap.add_argument("--gp-null", choices=("beads", "input"), default="beads",
-                    help="reference set true_gp builds its null from. beads uses "
+                    help="reference set the null is built from. beads uses "
                          "the mock immunoprecipitations, matching the other "
                          "scorers. input uses the library reference, which sets "
                          "the expected count from input abundance as the "
@@ -274,9 +253,9 @@ def main():
     n_beads = int((samples["control_status"] == "beads_only").sum())
     print(f"[score] counts {counts.shape[0]} peptides by {counts.shape[1]} samples, "
           f"{n_beads} beads-only")
-    # true_gp against the input reference is the one method that does not
+    # Scoring against the input reference is the one case that does not
     # measure against the mock immunoprecipitations.
-    needs_beads = not (args.method in GP_METHODS and args.gp_null == "input")
+    needs_beads = not (args.method in PY_METHODS and args.gp_null == "input")
     if needs_beads and n_beads < 2:
         sys.exit(f"{args.method} needs a beads-only group, found {n_beads} "
                  "sample(s). Mark them with control_status beads_only")
@@ -367,12 +346,7 @@ def main():
     if args.method in PY_METHODS:
         summary.update(replicate_rule=bool(args.replicate_rule),
                        replicate_group_column=args.replicate_group_column)
-        if args.method == "arcsinh":
-            summary["arcsinh_cofactor"] = args.arcsinh_cofactor
-        if args.method in GP_METHODS:
-            summary["gp_null"] = args.gp_null
-        if args.method in ("larman_gp", "xu_zigp"):
-            summary["gp_bins"] = args.gp_bins
+        summary.update(gp_null=args.gp_null, gp_bins=args.gp_bins)
     (out_dir / "enrichment_summary.json").write_text(json.dumps(summary, indent=2))
     print(f"[score] {summary['n_modelled']} of {summary['n_samples']} replicates "
           f"modelled, {summary['n_calls']} calls")

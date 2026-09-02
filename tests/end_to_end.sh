@@ -87,45 +87,6 @@ for name in ("groups", "replicates", "adjacent"):
 print(f"[test] shortlist {s['n_shortlist']}, criteria {s['criteria']}")
 PY
 
-# The scorers computed in Python, on the same counts the R path uses. true_gp is
-# left out because it is the one that needs statsmodels.
-for METHOD in arcsinh aitchison
-do
-    "$ROOT/bin/phipstream" score \
-        --counts        "$COUNTS" \
-        --sample-table  "$WORK/trimmed_table.csv" \
-        --peptide-table "$WORK/fixture/peptide_table.csv" \
-        --out-dir       "$WORK/score_$METHOD" \
-        --method        "$METHOD" > /dev/null
-    "$PYTHON" - "$WORK/score_$METHOD/enrichment_summary.json" "$METHOD" <<'CHECK'
-import json
-import sys
-s = json.load(open(sys.argv[1]))
-assert s["method"] == sys.argv[2], s["method"]
-assert s["threshold"] == 3.5, f"expected the 3.5 z cutoff, got {s['threshold']}"
-assert s["n_peptides"] == 200, s["n_peptides"]
-print(f"[test] {sys.argv[2]}: {s['n_calls']} calls at z > {s['threshold']}")
-CHECK
-done
-
-# The replicate rule can only lower a score, so it can never add calls.
-"$ROOT/bin/phipstream" score \
-    --counts        "$COUNTS" \
-    --sample-table  "$WORK/trimmed_table.csv" \
-    --peptide-table "$WORK/fixture/peptide_table.csv" \
-    --out-dir       "$WORK/score_arcsinh_rep" \
-    --method        arcsinh --replicate-rule > /dev/null
-"$PYTHON" - "$WORK/score_arcsinh" "$WORK/score_arcsinh_rep" <<'CHECK'
-import json
-import sys
-plain = json.load(open(sys.argv[1] + "/enrichment_summary.json"))
-ruled = json.load(open(sys.argv[2] + "/enrichment_summary.json"))
-assert ruled["replicate_rule"] is True, "replicate rule not recorded"
-assert ruled["n_calls"] <= plain["n_calls"], (
-    f"replicate rule raised calls, {plain['n_calls']} to {ruled['n_calls']}")
-print(f"[test] replicate rule: {plain['n_calls']} calls down to {ruled['n_calls']}")
-CHECK
-
 # The binned generalized Poisson scorers, when statsmodels is available. The
 # zero inflated variant can only lower a tail probability, so it can never call
 # fewer peptides than the plain fit at the same threshold.
@@ -140,18 +101,29 @@ then
             --out-dir       "$WORK/score_$METHOD" \
             --method        "$METHOD" --gp-bins 5 > /dev/null
     done
-    "$PYTHON" - "$WORK/score_larman_gp" "$WORK/score_xu_zigp" <<'CHECK'
+    "$ROOT/bin/phipstream" score \
+        --counts        "$COUNTS" \
+        --sample-table  "$WORK/trimmed_table.csv" \
+        --peptide-table "$WORK/fixture/peptide_table.csv" \
+        --out-dir       "$WORK/score_larman_gp_rep" \
+        --method        larman_gp --gp-bins 5 --replicate-rule > /dev/null
+    "$PYTHON" - "$WORK/score_larman_gp" "$WORK/score_xu_zigp" \
+                "$WORK/score_larman_gp_rep" <<'CHECK'
 import json
 import sys
 plain = json.load(open(sys.argv[1] + "/enrichment_summary.json"))
 zeroed = json.load(open(sys.argv[2] + "/enrichment_summary.json"))
-for s in (plain, zeroed):
+ruled = json.load(open(sys.argv[3] + "/enrichment_summary.json"))
+for s in (plain, zeroed, ruled):
     assert s["threshold"] == 2.3, f"expected the 2.3 cutoff, got {s['threshold']}"
     assert s["gp_bins"] == 5, s["gp_bins"]
 assert zeroed["n_calls"] >= plain["n_calls"], (
     f"zero inflation lowered calls, {plain['n_calls']} to {zeroed['n_calls']}")
-print(f"[test] larman_gp {plain['n_calls']} calls, "
-      f"xu_zigp {zeroed['n_calls']} at -log10 p > 2.3")
+assert ruled["replicate_rule"] is True, "replicate rule not recorded"
+assert ruled["n_calls"] <= plain["n_calls"], (
+    f"replicate rule raised calls, {plain['n_calls']} to {ruled['n_calls']}")
+print(f"[test] larman_gp {plain['n_calls']} calls, xu_zigp {zeroed['n_calls']}, "
+      f"replicate rule {ruled['n_calls']}")
 CHECK
 else
     echo "[test] statsmodels absent, binned generalized Poisson scorers skipped"
