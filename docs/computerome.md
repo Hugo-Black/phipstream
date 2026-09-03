@@ -180,6 +180,12 @@ check that the names in the script match the cluster.
 reason. The usual causes are an invalid project code, a full allocation, or a
 request that does not match available resources.
 
+**An R step fails with `cannot create dir '/home/<user>'` or a package failing
+to load.** The site is not mounting home into the container, so R cannot
+resolve `~` and PhIPData in particular fails on load. Both apptainer scopes
+pass `--home $PWD`, which puts the container's home in the task directory. If a
+site mounts home but read only, the same option applies.
+
 **`env: 'apptainer': No such file or directory` inside a task.** Nextflow
 submits every process as its own job, and those jobs inherit nothing from the
 script that submitted them. The `process_modules` parameter is loaded by each

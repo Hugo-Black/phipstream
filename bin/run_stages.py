@@ -290,6 +290,8 @@ def main():
             argv += ["--computerome_project", args.computerome_project]
         argv += ["--log-dir", str(out_dir / "logs"),
                  "--work-dir", str(out_dir / "work")]
+        if args.resume:
+            argv.append("--resume")
         for key, flag in (("modules", "--modules"), ("walltime", "--walltime"),
                           ("ppn", "--ppn"), ("mem", "--mem")):
             if key in cfg:
