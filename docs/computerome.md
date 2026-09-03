@@ -160,6 +160,11 @@ check that the names in the script match the cluster.
 reason. The usual causes are an invalid project code, a full allocation, or a
 request that does not match available resources.
 
+**`Unknown queue MSG=requested queue not found`.** The workflow route submits
+each process to the queue named by the `queue` parameter, which defaults to
+`batch`. List what the site actually offers with `qstat -Q` and set `queue`
+in the dataset config to one of them.
+
 **Image conversion fails while writing the SIF file.** The cache is not writable
 or the filesystem handles sparse files poorly. Point `NXF_APPTAINER_CACHEDIR` at
 a project filesystem and fetch the images again.
