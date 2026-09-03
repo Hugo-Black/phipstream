@@ -1,22 +1,27 @@
 # PBS cluster notes
 
-These notes describe the workflow manager path on Computerome and similar PBS or
-Torque clusters where Docker is not available on compute nodes.
+These notes cover both routes on Computerome and similar PBS or Torque clusters
+where Docker is not available on compute nodes.
 
 ## Account setup
 
-Load the site modules first. Module names can change, so check `module avail` if
-a listed name is not accepted.
+Load the site modules first, naming exact versions.
 
 ```bash
-module load tools apptainer nextflow
-cd $HOME/phipstream
+module load tools anaconda3/2024.06-1 apptainer/1.4.5 nextflow/25.10.2
+cd /path/to/phipstream
 make check
 ```
 
-Keep the repository somewhere visible from both login and compute nodes. On
-Computerome, `$HOME` works for this. The default Apptainer cache lives at
-`~/.apptainer/cache/`, which also needs to be visible to batch jobs.
+**Pin the versions.** A site that publishes no default for a module rejects a
+bare name, and `module load apptainer` there fails with `Unable to locate a
+modulefile for 'apptainer/<nodefault>'`. Check what exists with `module avail
+apptainer`, then record the exact names in the dataset config's `modules` key so
+submitted jobs load the same set. Both routes take that key from the config.
+
+Keep the repository somewhere visible from both login and compute nodes. The
+default Apptainer cache lives at `~/.apptainer/cache/`, which also needs to be
+visible to batch jobs.
 
 Fetch images before submitting work. Run this on a login node, which has
 registry access, and only once:
@@ -34,19 +39,20 @@ filesystem with enough space and rerun the pull.
 
 ## Python
 
-The stage commands need an interpreter with pandas. The workflow manager route
-does not.
+The stage commands need an interpreter with pandas, and the generalized Poisson
+scorers additionally need statsmodels. The workflow manager route needs neither,
+since it runs everything in containers.
 
 Prefer a site module that already carries the scientific stack over building an
 environment. On Computerome that is anaconda:
 
 ```bash
-module load tools anaconda3/2024.06-1 apptainer/1.4.5
-python3 -c "import pandas; print(pandas.__version__)"
+module load tools anaconda3/2024.06-1
+python3 -c "import pandas, statsmodels; print('ok')"
 ```
 
-pandas is the only Python dependency, so that module is enough and nothing needs
-installing.
+Those are the only Python dependencies, so that module is enough and nothing
+needs installing.
 
 Do not build a virtual environment or run `pip install` on a login node. Those
 nodes cap per-user memory and terminate the process with a bare `Killed` message
@@ -61,8 +67,9 @@ an older system Python back in front.
 
 ## Dataset setup, stage route
 
-This route runs trimming, alignment, enrichment calling, concordance and
-prioritisation as one job. It is the route that produces a shortlist.
+This route runs read quality reporting, trimming, alignment, enrichment calling,
+concordance and prioritisation as one job. It is the route that produces a
+shortlist.
 
 ```bash
 cp configs/_template.stages.conf configs/mydataset.stages.conf
@@ -86,16 +93,20 @@ The project value is the allocation charged by PBS. Without it the job script is
 written but not submitted. Job output lands under the `logs/` directory inside
 the configured `out_dir`.
 
-Before committing to a full run, set `method = edger` in the config and submit
-once. That stops after edgeR rather than running the sampler, which took seconds
-where BEER took hours on the same data, and it exercises every stage including
-prioritisation. Switch back to `method = beer` once the deployment is proven,
-and expect a different and much larger set of calls.
+Set `fastqc = true` unless the contamination diagnostic is definitely not
+wanted. It adds a stage ahead of trimming and writes the archives that module
+reads, and nothing else creates them.
 
-Enrichment calling is the long stage. It ran for about three hours on 96 samples
-against 1,194 peptides, and it runs on one core because the sampler is forced to
-serial execution. Set `walltime` with room to spare, because losing the job at
-the wall loses that time.
+Prove the deployment with a fast scorer before committing to BEER. `edger` and
+`larman_gp` both finish in seconds where BEER takes hours, and both exercise
+every stage including prioritisation. On 96 samples against 1,194 peptides
+edgeR scored 3 of 18 donor groups and shortlisted nothing, while `larman_gp`
+scored all 18, so the second is the more useful check as well as the faster one.
+
+BEER is the long stage when it is selected. It ran for about three hours on that
+dataset and uses one core, because the sampler is forced to serial execution.
+Set `walltime` with room to spare, since losing the job at the wall loses that
+time.
 
 If a job does die, resubmit it. Every stage is skipped when its output is already
 present, so a rerun continues from the stage that failed rather than repeating
@@ -158,23 +169,58 @@ bin/phipstream nextflow configs/mydataset.config
 
 That catches path errors and missing cache files before queue time is spent.
 
-## Resume after failure, workflow manager route
+## Resume after failure
 
-Nextflow keeps finished tasks under `work/`. After correcting the problem, pass
-`--resume`:
+Both routes resume. The stage route skips any stage whose output is already
+present, so a resubmission continues from the one that failed.
+
+The workflow route keeps finished tasks under `<out_dir>/work` and needs to be
+told:
 
 ```bash
-bin/phipstream nextflow configs/mydataset.config --resume
+bin/phipstream stages configs/mydataset.stages.conf --workflow --resume \
+    --submit --computerome_project <project>
 ```
+
+A run stopped part way through can pick up cheaply. One here reported
+`Succeeded: 6, Cached: 398` and finished in under three minutes, having reused
+the alignment, counting, library QC and contamination it had already done.
 
 Changing an input timestamp or a config value can invalidate part of the cache.
 For example, editing the sample table reruns tasks that depend on it.
 
+## Where output goes
+
+Everything a run produces is written under the `out_dir` from the config.
+
+```text
+<out_dir>/
+  fastqc/        FastQC archives, read by the contamination diagnostic
+  trimmed/       trimmed reads
+  alignment/     counts matrix and per sample alignment summary
+  enrichment/    score and hit matrices for the selected method
+  prioritised/   shortlist and replicate concordance
+  workflow/      the workflow route's layers, QC and contamination
+  logs/          job scripts, scheduler output, Nextflow report and trace
+  work/          the workflow route's scratch space
+```
+
+`work/` holds every intermediate file the workflow route produces and is the
+largest thing written. It can be deleted once a run has finished, at the cost
+of not being able to resume it.
+
+A standalone `phipstream submit` has no `out_dir` and instead follows the
+config's `results` path, provided that path is absolute. Otherwise it falls
+back to `logs/` in the repository. `--log-dir` and `--work-dir` override both.
+
 ## Frequent problems
 
-**`apptainer: command not found` inside the job.** The compute job did not load a
-module that provides Apptainer. The generated script loads modules itself, so
-check that the names in the script match the cluster.
+**`Unable to locate a modulefile for '<name>/<nodefault>'`.** The `modules` key
+names a module the site publishes no default version for. Run `module avail
+<name>` and put an exact version in the config.
+
+**`apptainer: command not found` inside the job.** The `modules` key does not
+name a module providing Apptainer.
 
 **The job stays queued.** Run `qstat -f <jobid>` and inspect the scheduler
 reason. The usual causes are an invalid project code, a full allocation, or a

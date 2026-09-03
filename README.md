@@ -24,25 +24,39 @@ Two execution modes are provided:
 
 | Command | Function |
 |---|---|
-| `phipstream qc` | Generate an nf-core/seqinspector sample sheet from the project sample table. |
+| `phipstream stages` | Run every stage from one configuration file, or submit it as a job. |
+| `phipstream fastqc` | Write a FastQC archive per read file. |
 | `phipstream trim` | Remove amplicon adapter sequences with cutadapt. |
 | `phipstream align` | Align R1 reads to library oligos with Bowtie 2 and produce peptide counts. |
-| `phipstream score` | Fit the beads-only background with edgeR and call enrichment with BEER. |
+| `phipstream score` | Call enriched peptides against the beads-only background. |
 | `phipstream prioritise` | Summarise replicate support and produce peptide shortlists. |
+| `phipstream qc` | Generate an nf-core/seqinspector sample sheet from the project sample table. |
 | `phipstream images` | List or retrieve the pinned container images. |
 | `phipstream nextflow` | Execute the bundled phip-flow based workflow. |
 | `phipstream submit` | Submit the bundled workflow as a PBS job. |
 
-The direct command line interface is intended for analyses requiring explicit
-stage control and inspectable intermediate files. The Nextflow execution mode is
-intended for managed cluster execution and phip-flow compatible deployments.
+There are two ways to run an analysis and neither covers everything.
+
+The **stage route** runs FastQC, trimming, alignment, scoring and
+prioritisation. It is the only one that produces a shortlist, it runs as a
+single job, and its stages can also be invoked one at a time for inspection.
+
+The **workflow manager route** runs the bundled phip-flow fork. It adds the
+scoring layers the stages do not carry, CPM, binned z scores and gamma-Poisson,
+along with the library QC and contamination diagnostic modules, and distributes
+alignment across nodes. It produces no shortlist.
+
+One configuration file drives both. See [Running every stage from one
+file](#running-every-stage-from-one-file).
 
 ## Installation and requirements
 
 Required host software:
 
 * Python 3.9 or later.
-* pandas 2.0 or later, installed through `requirements.txt`.
+* pandas 2.0 or later and statsmodels 0.14 or later, both installed through
+  `requirements.txt`. statsmodels is used only by the `larman_gp` and `xu_zigp`
+  scorers, which report it clearly if it is absent.
 * Docker or Apptainer. Docker is appropriate for local workstations. Apptainer is
   appropriate for clusters where Docker is not available to users.
 
@@ -102,7 +116,25 @@ This command writes an nf-core/seqinspector compatible sample sheet.
 seqinspector should be executed separately with an appropriate Nextflow
 installation.
 
-### 2. Trim adapter sequences
+### 2. Write read quality reports
+
+```bash
+bin/phipstream fastqc \
+    --sample-table  metadata/sample_table.csv \
+    --out-dir       results/fastqc \
+    --threads       8
+```
+
+One FastQC archive per read file, plus an index CSV naming what was produced.
+
+Run this on untrimmed reads. Trimming removes the leader, which is where vector
+carryover and other overrepresented sequences are most visible.
+
+The contamination diagnostic in the workflow manager route reads these archives
+rather than the reads themselves, and nothing else creates them. Without this
+stage that module logs a warning and produces nothing.
+
+### 3. Trim adapter sequences
 
 ```bash
 bin/phipstream trim \
@@ -123,7 +155,7 @@ the cutadapt JSON and log files in `results/trimmed/cutadapt_logs`. A high
 proportion of reads discarded for length can indicate an adapter specification
 mismatch or an unsuitable length threshold.
 
-### 3. Align reads and count library oligos
+### 4. Align reads and count library oligos
 
 ```bash
 bin/phipstream align \
@@ -164,7 +196,7 @@ Principal outputs:
 * `results/alignment/align_summary.csv`: per-sample read totals, alignment
   rates, and proper pair counts for paired-end runs.
 
-### 4. Call enrichment
+### 5. Call enrichment
 
 ```bash
 bin/phipstream score \
@@ -252,7 +284,7 @@ BEER requires at least two beads-only controls. Four to eight beads-only control
 are recommended. The command issues a warning below four controls and terminates
 below two controls.
 
-### 5. Summarise replicate support and prioritise peptides
+### 6. Summarise replicate support and prioritise peptides
 
 ```bash
 bin/phipstream prioritise \
@@ -404,7 +436,9 @@ bin/phipstream stages configs/mydataset.stages.conf
 
 Keys match the stage options with dashes replaced by underscores. Omit the
 `adapters` key when the sample table already points at trimmed reads, and the
-trimming stage is skipped.
+trimming stage is skipped. The same file also carries the settings for the
+workflow manager route, in a `[workflow]` section described below, so a dataset
+is described once rather than twice.
 
 | Key | Default | Purpose |
 |---|---|---|
@@ -660,7 +694,8 @@ bin/
   phipstream-setup        environment check used by make check
   containers.py           image tags and runtime wrapper
   make_qc_samplesheet.py  seqinspector sample sheet writer
-  run_fastqc.py           FastQC stage, read for the contamination diagnostic
+  run_fastqc.py           FastQC stage, read by the contamination diagnostic
+  scorers.py              score matrices computed in Python
   trim_reads.py           cutadapt stage
   align_reads.py          Bowtie 2 alignment and count stage
   call_enrichment.py      edgeR and BEER scoring wrapper

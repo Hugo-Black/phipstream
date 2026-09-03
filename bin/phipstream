@@ -2,9 +2,10 @@
 # phipstream command dispatcher.
 #
 #   qc          create an nf-core/seqinspector sample sheet
+#   fastqc      write a FastQC archive per read file
 #   trim        run cutadapt over the read files
 #   align       map R1 reads to peptide oligos and collect counts
-#   score       call enriched peptides with edgeR and BEER
+#   score       call enriched peptides, see --method for the choices
 #   prioritise  summarise replicate support and build shortlists
 #   stages      run every stage from one config file, or submit it as a job
 #   images      show or fetch the pinned container images
@@ -43,6 +44,7 @@ shift || true
 case "$SUBCMD" in
     -h|--help|help) usage 0 ;;
     qc)         stage make_qc_samplesheet.py "$@" ;;
+    fastqc)     stage run_fastqc.py "$@" ;;
     trim)       stage trim_reads.py "$@" ;;
     align)      stage align_reads.py "$@" ;;
     score)      stage call_enrichment.py "$@" ;;

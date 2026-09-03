@@ -1,1 +1,4 @@
 pandas>=2.0
+# Needed only by the larman_gp and xu_zigp scorers. Every other stage runs
+# without it, and those two report it clearly when it is absent.
+statsmodels>=0.14
