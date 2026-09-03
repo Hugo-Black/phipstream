@@ -284,7 +284,8 @@ def main():
                 "submit" if args.submit else "nextflow", str(rendered)]
         if args.computerome_project:
             argv += ["--computerome_project", args.computerome_project]
-        argv += ["--log-dir", str(out_dir / "logs")]
+        argv += ["--log-dir", str(out_dir / "logs"),
+                 "--work-dir", str(out_dir / "work")]
         for key, flag in (("modules", "--modules"), ("walltime", "--walltime"),
                           ("ppn", "--ppn"), ("mem", "--mem")):
             if key in cfg:

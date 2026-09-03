@@ -475,12 +475,17 @@ such a site fails with `Unable to locate a modulefile for apptainer/<nodefault>`
 and the job dies on its first line.
 
 The job script, the scheduler output and the Nextflow report and trace are all
-written under `<out_dir>/logs`, so one run leaves one trail. A standalone
+written under `<out_dir>/logs`, and Nextflow's scratch space under
+`<out_dir>/work`. Scratch holds every intermediate file the run produces and is
+the largest thing it writes, so it belongs on the filesystem that holds the
+dataset rather than the one holding the code. A standalone
 `phipstream submit` has no `out_dir` to work from and reads the config's own
 `results` path instead, writing to `<results>/logs`. That path is only used when
 it is absolute, since a relative one may hold a Nextflow variable this script
 cannot resolve, and in that case output falls back to `logs/` in the repository.
-`--log-dir` overrides all of it.
+`--log-dir` and `--work-dir` override all of it. A config whose `results` path
+is relative gets neither, and Nextflow falls back to `work/` in the launch
+directory.
 
 ## Workflow manager execution
 

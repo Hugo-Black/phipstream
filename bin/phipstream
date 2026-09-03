@@ -11,7 +11,8 @@
 #
 #   nextflow    launch the bundled workflow for a dataset config
 #   submit      wrap that workflow in a PBS submission script, taking the
-#               modules to load from --modules
+#               modules to load from --modules, and writing scratch and logs
+#               beside the dataset rather than into this directory
 #
 # Stage commands pass the rest of their arguments through unchanged. For example,
 # `phipstream align --help` displays the aligner stage options.
@@ -67,6 +68,9 @@ MODULES="tools apptainer nextflow"
 # default keeps a standalone run self-contained, and the stage runner points it
 # at the dataset instead so one run leaves one trail.
 LOG_DIR="$ROOT/logs"
+# Nextflow's scratch space. It holds every intermediate file the run produces,
+# so it belongs with the dataset rather than in the checkout.
+WORK_DIR=""
 WALLTIME="24:00:00"
 PPN="8"
 MEM="32gb"
@@ -76,6 +80,7 @@ while [[ $# -gt 0 ]]; do
         --computerome_project) COMPUTEROME_PROJECT="$2" ; shift 2 ;;
         --modules)             MODULES="$2" ; shift 2 ;;
         --log-dir)             LOG_DIR="$2" ; shift 2 ;;
+        --work-dir)            WORK_DIR="$2" ; shift 2 ;;
         --walltime)            WALLTIME="$2" ; shift 2 ;;
         --ppn)                 PPN="$2" ; shift 2 ;;
         --mem)                 MEM="$2" ; shift 2 ;;
@@ -88,9 +93,12 @@ done
 # leaves its trail beside its output rather than inside the checkout. Only an
 # absolute path is taken, since a relative one may hold a Nextflow variable
 # this script cannot resolve.
-if [[ "$LOG_DIR" == "$ROOT/logs" ]]; then
-    CONFIG_RESULTS="$(sed -n 's|^[[:space:]]*results[[:space:]]*=[[:space:]]*"\(/[^"]*\)".*|\1|p' "$CONFIG" | tail -1)"
-    [[ -n "$CONFIG_RESULTS" ]] && LOG_DIR="$CONFIG_RESULTS/logs"
+CONFIG_RESULTS="$(sed -n 's|^[[:space:]]*results[[:space:]]*=[[:space:]]*"\(/[^"]*\)".*|\1|p' "$CONFIG" | tail -1)"
+if [[ "$LOG_DIR" == "$ROOT/logs" && -n "$CONFIG_RESULTS" ]]; then
+    LOG_DIR="$CONFIG_RESULTS/logs"
+fi
+if [[ -z "$WORK_DIR" && -n "$CONFIG_RESULTS" ]]; then
+    WORK_DIR="$CONFIG_RESULTS/work"
 fi
 
 MAIN="$ROOT/phip-flow/main.nf"
@@ -99,6 +107,7 @@ MAIN="$ROOT/phip-flow/main.nf"
 ARGS=("$MAIN" -c "$ROOT/phip-flow/nextflow.config" -c "$CONFIG"
       -with-report "$LOG_DIR/pipeline_report.html"
       -with-trace "$LOG_DIR/trace.tsv")
+[[ -n "$WORK_DIR" ]] && ARGS+=(-work-dir "$WORK_DIR")
 [[ -n "$RESUME" ]] && ARGS+=("$RESUME")
 [[ ${#PASSTHROUGH[@]} -gt 0 ]] && ARGS+=("${PASSTHROUGH[@]}")
 
