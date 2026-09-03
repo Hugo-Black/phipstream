@@ -160,6 +160,12 @@ check that the names in the script match the cluster.
 reason. The usual causes are an invalid project code, a full allocation, or a
 request that does not match available resources.
 
+**`env: 'apptainer': No such file or directory` inside a task.** Nextflow
+submits every process as its own job, and those jobs inherit nothing from the
+script that submitted them. The `process_modules` parameter is loaded by each
+task for exactly this reason, and it must name a module providing Apptainer.
+The stage route fills it from the config's `modules` key.
+
 **`Unknown queue MSG=requested queue not found`.** The workflow route submits
 each process to the queue named by the `queue` parameter, which defaults to
 `batch`. List what the site actually offers with `qstat -Q` and set `queue`

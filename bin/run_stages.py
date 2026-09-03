@@ -214,6 +214,10 @@ def write_workflow_config(cfg, workflow, out_dir):
                       adapter_r2_5p_list=",".join(r2))
     if enabled(cfg, "fastqc"):
         params["fastqc_dir"] = str(out_dir / "fastqc")
+    # Each task is its own job and loads its own modules, so it needs the same
+    # list the submitting script was given.
+    if "modules" in cfg:
+        params["process_modules"] = cfg["modules"]
     params.update(workflow)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / "workflow.config"
