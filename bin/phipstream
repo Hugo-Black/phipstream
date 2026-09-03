@@ -84,6 +84,15 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Without an explicit --log-dir, follow the config's own results path so a run
+# leaves its trail beside its output rather than inside the checkout. Only an
+# absolute path is taken, since a relative one may hold a Nextflow variable
+# this script cannot resolve.
+if [[ "$LOG_DIR" == "$ROOT/logs" ]]; then
+    CONFIG_RESULTS="$(sed -n 's|^[[:space:]]*results[[:space:]]*=[[:space:]]*"\(/[^"]*\)".*|\1|p' "$CONFIG" | tail -1)"
+    [[ -n "$CONFIG_RESULTS" ]] && LOG_DIR="$CONFIG_RESULTS/logs"
+fi
+
 MAIN="$ROOT/phip-flow/main.nf"
 [[ -f "$MAIN" ]] || { echo "phipstream: pipeline source missing at $MAIN" >&2 ; exit 1 ; }
 

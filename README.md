@@ -476,8 +476,11 @@ and the job dies on its first line.
 
 The job script, the scheduler output and the Nextflow report and trace are all
 written under `<out_dir>/logs`, so one run leaves one trail. A standalone
-`phipstream submit` with a dataset config writes them under `logs/` in the
-repository instead, which `--log-dir` overrides.
+`phipstream submit` has no `out_dir` to work from and reads the config's own
+`results` path instead, writing to `<results>/logs`. That path is only used when
+it is absolute, since a relative one may hold a Nextflow variable this script
+cannot resolve, and in that case output falls back to `logs/` in the repository.
+`--log-dir` overrides all of it.
 
 ## Workflow manager execution
 
