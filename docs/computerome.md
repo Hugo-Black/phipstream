@@ -101,6 +101,26 @@ If a job does die, resubmit it. Every stage is skipped when its output is alread
 present, so a rerun continues from the stage that failed rather than repeating
 the sampler.
 
+## Choosing a route
+
+The stage route submits one job. The workflow manager route submits one job per
+task, which for a hundred samples is several hundred of them, each asking for
+the profile's default of 4 cores and 16 GB.
+
+That trade is worth taking when a task is real work. Aligning a hundred
+thousand peptides is. Counting reads against a library of one thousand is not,
+and on such a dataset the stage route finishes the same alignment and counting
+in a single job in well under a minute, where the workflow route spends longer
+than that waiting in a queue.
+
+Use the workflow route for the scoring layers and analysis modules the stage
+route does not provide, and the stage route for everything else, unless the
+library is large enough that spreading alignment across nodes pays for the
+scheduling overhead.
+
+Submissions are capped at 20 in flight at 10 per minute. Raise `queueSize` in
+the profile only after checking what the site tolerates.
+
 ## Dataset setup, workflow manager route
 
 This route distributes alignment across nodes but stops after enrichment
